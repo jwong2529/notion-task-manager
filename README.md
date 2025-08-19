@@ -27,6 +27,14 @@ cd <repo_directory>
 ```
 
 ### 2. Install dependencies
+Create a virtual environment and activate it.
+```bash
+python -m venv .venv 
+```
+```bash
+source .venv/bin/activate
+```
+Then install these.
 ```bash
 pip install notion-client python-dotenv
 ```
