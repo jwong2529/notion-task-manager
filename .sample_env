@@ -1,0 +1,7 @@
+NOTION_SECRET=your_notion_secret
+DATABASE_ID=your_database_id
+
+PROPERTIES=list_of_your_desired_database_properties
+DEFAULT_TIMEZONE=America/Los_Angeles
+TIMEZONE_CHOICES=America/Los_Angeles, America/New_York
+QUICK_ACCESS_TIMES=11:59 PM
