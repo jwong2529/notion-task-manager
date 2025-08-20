@@ -192,7 +192,7 @@ def prompt_for_property(prop_name, prop_info):
             return {"status": {"name": choice}}
 
     elif prop_type == "date":
-        user_input = input("e.g. 2025-08-17 11:59 PM or 08-17 11:59 PM: ").strip()
+        user_input = input("e.g. 2025-08-17 11:59 PM or 08-17 11:59 PM or 0817 1159 PM: ").strip()
         if not user_input:
             return None
         return format_date_input(user_input)

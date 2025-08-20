@@ -9,11 +9,12 @@ I'm using this script to manage assignments and deadlines in my Notion database 
 ## What It Does
 
 - **Interactive prompts** for all task properties defined in your Notion database  
-- **Flexible date input**: supports `YYYY-MM-DD`, `MM-DD`, and optional time.  
+- **Flexible date input**: supports `YYYY-MM-DD`, `MM-DD`, `MMDD`, and optional time.  
 - **Quick-access times**: choose from pre-defined common times if no time is provided.  
 - **Timezone support**: choose a timezone or use the default.  
 - **Supports select, multi-select, status, people, and relation properties**.  
-- **Summarizes the task** before submitting to Notion.  
+- **Summarizes the task** before submitting to Notion.
+- **Add multiple tasks** for efficient management
 
 ---
 
