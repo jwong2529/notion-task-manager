@@ -33,59 +33,118 @@ def pick_timezone():
     return DEFAULT_TZ
 
 def format_date_input(user_input: str):
-    """Convert user date input into Notion date format (with optional time)."""
+    """Convert user date input into Notion date format (with optional time).
+       Supports:
+       - Dates: YYYY-MM-DD, MM-DD, and shorthand MMDD like '817' or '0817'
+       - Times: HH:MM (24h), H:MM AM/PM, digit-only '232' or '1259',
+                and digit-only with AM/PM like '232 PM'
+    """
+    import re
     if not user_input.strip():
         return None
 
-    # Split user input into date part and optional time part
+    # Split into date + optional time (everything after the first token is "time_part")
     parts = user_input.strip().split()
     date_part = parts[0]
     time_part = " ".join(parts[1:]) if len(parts) > 1 else None
+    tz = ZoneInfo(pick_timezone())
 
-    # Handle date-only formats
-    date_formats = ["%Y-%m-%d", "%m-%d"]
-    for fmt in date_formats:
-        try:
-            dt = datetime.strptime(date_part, fmt)
-            if fmt.startswith("%m-%d"):
-                dt = dt.replace(year=datetime.now().year)
-            tz = ZoneInfo(pick_timezone())
+    # --- Parse date (supports '817'/'0817' -> Aug 17 of current year) ---
+    dt = None
+    if date_part.isdigit() and len(date_part) in (3, 4):
+        if len(date_part) == 3:   # e.g., 817 -> 8/17
+            month = int(date_part[0])
+            day = int(date_part[1:])
+        else:                     # e.g., 0817 -> 08/17
+            month = int(date_part[:2])
+            day = int(date_part[2:])
+        dt = datetime(datetime.now().year, month, day)
 
-            # Determine which time to use
-            if time_part:
-                # User provided a time
-                for time_fmt in ["%H:%M", "%I:%M %p"]:
-                    try:
-                        time_dt = datetime.strptime(time_part, time_fmt)
-                        dt = dt.replace(hour=time_dt.hour, minute=time_dt.minute, tzinfo=tz)
-                        return {"date": {"start": dt.isoformat()}}
-                    except ValueError:
-                        continue
-                raise ValueError("Invalid time format. Use HH:MM (24h) or HH:MM AM/PM")
-            elif QUICK_ACCESS_TIMES:
-                # Let user pick a hardcoded time
-                print("\nChoose a hardcoded time or leave blank for no time:")
-                for i, t in enumerate(QUICK_ACCESS_TIMES, 1):
-                    print(f"[{i}] {t}")
-                choice = input("Enter number or blank: ").strip()
-                if choice.isdigit() and 1 <= int(choice) <= len(QUICK_ACCESS_TIMES):
-                    t_str = QUICK_ACCESS_TIMES[int(choice)-1]
-                    for time_fmt in ["%H:%M", "%I:%M %p"]:
-                        try:
-                            time_dt = datetime.strptime(t_str, time_fmt)
-                            dt = dt.replace(hour=time_dt.hour, minute=time_dt.minute, tzinfo=tz)
-                            return {"date": {"start": dt.isoformat()}}
-                        except ValueError:
-                            continue
-                # Blank: return date only
-                return {"date": {"start": dt.date().isoformat()}}
+    if not dt:
+        for fmt in ("%Y-%m-%d", "%m-%d"):
+            try:
+                dt = datetime.strptime(date_part, fmt)
+                if fmt == "%m-%d":
+                    dt = dt.replace(year=datetime.now().year)
+                break
+            except ValueError:
+                continue
+
+    if not dt:
+        raise ValueError("Invalid date. Examples: '2025-08-17', '08-17', '817', or '0817'.")
+
+    # --- Parse time (if provided) ---
+    if time_part:
+        # 1) Try typical formats first: 24h with colon, then 12h with colon+AM/PM
+        for time_fmt in ("%H:%M", "%I:%M %p"):
+            try:
+                t = datetime.strptime(time_part, time_fmt)
+                dt = dt.replace(hour=t.hour, minute=t.minute, tzinfo=tz)
+                return {"date": {"start": dt.isoformat()}}
+            except ValueError:
+                pass
+
+        # 2) Try digit-only with optional AM/PM, e.g. "232", "1259", "232 PM"
+        m = re.match(r"^\s*(\d{1,4})\s*(am|pm|AM|PM)?\s*$", time_part)
+        if m:
+            digits = m.group(1)
+            ampm = (m.group(2) or "").lower()
+
+            # Convert digits -> hour/minute
+            if len(digits) in (3, 4):
+                hour = int(digits[:-2])
+                minute = int(digits[-2:])
+            elif len(digits) in (1, 2):
+                hour = int(digits)
+                minute = 0
             else:
-                # No time entered, no hardcoded times: date only
-                return {"date": {"start": dt.date().isoformat()}}
-        except ValueError:
-            continue
+                raise ValueError("Time too long. Use up to 4 digits, e.g. '232' or '1259'.")
 
-    raise ValueError("Invalid date format. Examples: '2025-08-17', '2025-08-17 11:59 PM', or '08-17'.")
+            # Validate ranges (pre-AM/PM conversion)
+            if not (0 <= minute <= 59):
+                raise ValueError("Minute must be 00–59.")
+            if ampm:
+                # 12-hour normalization
+                if not (1 <= hour <= 12):
+                    raise ValueError("Hour must be 1–12 when using AM/PM.")
+                if ampm == "am":
+                    hour = 0 if hour == 12 else hour
+                else:  # pm
+                    hour = 12 if hour == 12 else hour + 12
+            else:
+                # No AM/PM -> treat as 24h
+                if not (0 <= hour <= 23):
+                    raise ValueError("Hour must be 00–23 for 24-hour times.")
+
+            dt = dt.replace(hour=hour, minute=minute, tzinfo=tz)
+            return {"date": {"start": dt.isoformat()}}
+
+        # If nothing matched:
+        raise ValueError(
+            "Invalid time. Examples: '14:30', '2:30 PM', '232', '1259', or '232 PM'."
+        )
+
+    # --- No time given -> optionally offer quick access times, else date-only ---
+    if QUICK_ACCESS_TIMES:
+        print("\nChoose a hardcoded time or leave blank for no time:")
+        for i, t in enumerate(QUICK_ACCESS_TIMES, 1):
+            print(f"[{i}] {t}")
+        choice = input("Enter number or blank: ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(QUICK_ACCESS_TIMES):
+            t_str = QUICK_ACCESS_TIMES[int(choice) - 1]
+            for time_fmt in ("%H:%M", "%I:%M %p"):
+                try:
+                    t = datetime.strptime(t_str, time_fmt)
+                    dt = dt.replace(hour=t.hour, minute=t.minute, tzinfo=tz)
+                    return {"date": {"start": dt.isoformat()}}
+                except ValueError:
+                    continue
+        # Blank => date-only
+        return {"date": {"start": dt.date().isoformat()}}
+
+    # Date only (no quick access times configured)
+    return {"date": {"start": dt.date().isoformat()}}
+
 
 
 def choose_from_options(options, multi=False):
@@ -195,4 +254,10 @@ def interactive_add_task():
     print("\n✅ Task added:", page["url"])
 
 if __name__ == "__main__":
-    interactive_add_task()
+    while True:
+        interactive_add_task()
+        again = input("\n➕ Do you want to add another task? (y/n): ").strip().lower()
+        if again not in ("y", "yes"):
+            print("👋 Done adding tasks.")
+            break
+
