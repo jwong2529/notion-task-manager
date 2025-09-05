@@ -1,3 +1,4 @@
+import sys
 import os
 from notion_client import Client
 from dotenv import load_dotenv
@@ -36,44 +37,107 @@ def format_date_input(user_input: str):
     """Convert user date input into Notion date format (with optional time).
        Supports:
        - Dates: YYYY-MM-DD, MM-DD, and shorthand MMDD like '817' or '0817'
+       - Weekdays: 'this tuesday', 'next tues', or just 'tuesday'/'tue' (case-insensitive)
+       - Shortcuts: 'today', 'tomorrow'
        - Times: HH:MM (24h), H:MM AM/PM, digit-only '232' or '1259',
                 and digit-only with AM/PM like '232 PM'
     """
     import re
+    import calendar
+    from datetime import timedelta
+
     if not user_input.strip():
         return None
 
-    # Split into date + optional time (everything after the first token is "time_part")
+    # Original split (kept)
     parts = user_input.strip().split()
     date_part = parts[0]
     time_part = " ".join(parts[1:]) if len(parts) > 1 else None
     tz = ZoneInfo(pick_timezone())
 
-    # --- Parse date (supports '817'/'0817' -> Aug 17 of current year) ---
-    dt = None
-    if date_part.isdigit() and len(date_part) in (3, 4):
+    now = datetime.now()
+    dt = None  # will be set by weekday/shortcut OR by numeric parsing below
+
+    # ── Weekday & shortcut parsing (non-destructive to original flows) ──
+    tokens = [p.lower() for p in parts]
+    weekdays_map = {day.lower(): i for i, day in enumerate(calendar.day_name)}
+    aliases = {
+        "mon": "monday",
+        "tue": "tuesday", "tues": "tuesday",
+        "wed": "wednesday", "weds": "wednesday",
+        "thu": "thursday", "thur": "thursday", "thurs": "thursday",
+        "fri": "friday",
+        "sat": "saturday",
+        "sun": "sunday",
+    }
+
+    def norm_weekday(tok: str):
+        return aliases.get(tok.lower(), tok.lower())
+
+    consumed = 0  # how many tokens belong to the date phrase we parse here
+
+    if tokens:
+        # Shortcuts: today / tomorrow
+        if tokens[0] in ("today",):
+            dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            consumed = 1
+        elif tokens[0] in ("tomorrow",):
+            dt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            consumed = 1
+
+        # "this/next <weekday>"
+        elif tokens[0] in ("this", "next") and len(tokens) >= 2:
+            wd_full = norm_weekday(tokens[1])
+            if wd_full in weekdays_map:
+                target = weekdays_map[wd_full]
+                today = now.weekday()
+                if tokens[0] == "this":
+                    days_ahead = (target - today) % 7
+                else:  # next
+                    days_ahead = (target - today) % 7
+                    if days_ahead == 0:
+                        days_ahead = 7
+                dt = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
+                consumed = 2
+
+        # Just a weekday ("tuesday"/"tue")
+        elif norm_weekday(tokens[0]) in weekdays_map:
+            wd_full = norm_weekday(tokens[0])
+            target = weekdays_map[wd_full]
+            today = now.weekday()
+            days_ahead = (target - today) % 7  # next occurrence, including today
+            dt = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
+            consumed = 1
+
+    # If we matched a weekday/shortcut, recompute time_part from remaining tokens
+    if dt is not None:
+        remainder = " ".join(parts[consumed:]).strip()
+        time_part = remainder if remainder else None
+
+    # --- Parse date (original numeric parsing; only if weekday/shortcut didn't set dt) ---
+    if dt is None and date_part.isdigit() and len(date_part) in (3, 4):
         if len(date_part) == 3:   # e.g., 817 -> 8/17
             month = int(date_part[0])
             day = int(date_part[1:])
         else:                     # e.g., 0817 -> 08/17
             month = int(date_part[:2])
             day = int(date_part[2:])
-        dt = datetime(datetime.now().year, month, day)
+        dt = datetime(now.year, month, day)
 
-    if not dt:
+    if dt is None:
         for fmt in ("%Y-%m-%d", "%m-%d"):
             try:
                 dt = datetime.strptime(date_part, fmt)
                 if fmt == "%m-%d":
-                    dt = dt.replace(year=datetime.now().year)
+                    dt = dt.replace(year=now.year)
                 break
             except ValueError:
                 continue
 
-    if not dt:
-        raise ValueError("Invalid date. Examples: '2025-08-17', '08-17', '817', or '0817'.")
+    if dt is None:
+        raise ValueError("Invalid date. Examples: '2025-08-17', '08-17', '817', or '0817'; also 'today', 'tuesday', 'this fri', 'next wed'.")
 
-    # --- Parse time (if provided) ---
+    # --- Parse time ---
     if time_part:
         # 1) Try typical formats first: 24h with colon, then 12h with colon+AM/PM
         for time_fmt in ("%H:%M", "%I:%M %p"):
@@ -145,8 +209,6 @@ def format_date_input(user_input: str):
     # Date only (no quick access times configured)
     return {"date": {"start": dt.date().isoformat()}}
 
-
-
 def choose_from_options(options, multi=False):
     """Display numbered options and let user choose by number(s)."""
     for i, opt in enumerate(options, 1):
@@ -192,10 +254,16 @@ def prompt_for_property(prop_name, prop_info):
             return {"status": {"name": choice}}
 
     elif prop_type == "date":
-        user_input = input("e.g. 2025-08-17 11:59 PM or 08-17 11:59 PM or 0817 1159 PM: ").strip()
-        if not user_input:
-            return None
-        return format_date_input(user_input)
+        print("Enter a date (examples: '2025-08-17 11:59 PM', '08-17', '0817 1159 PM')")
+        print("Shortcuts: 'today', 'tomorrow', 'this tue', 'next fri'")
+        while True:
+            user_input = input("Date: ").strip()
+            if not user_input:
+                return None
+            try:
+                return format_date_input(user_input)
+            except ValueError as e:
+                print(f"⚠️ {e}. Try again.")
 
     elif prop_type == "people":
         user_input = input("Enter Notion user ID: ").strip()
