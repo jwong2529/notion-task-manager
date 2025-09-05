@@ -8,13 +8,13 @@ I'm using this script to manage assignments and deadlines in my Notion database 
 
 ## What It Does
 
-- **Interactive prompts** for all task properties defined in your Notion database  
-- **Flexible date input**: supports `YYYY-MM-DD`, `MM-DD`, `MMDD`, and optional time.  
+- **Interactive prompts** for all task properties defined in your Notion database.  
+- **Flexible date input**: supports `YYYY-MM-DD`, `MM-DD`, `MMDD`, natural weekday expressions, shortcuts, and optional time.  
 - **Quick-access times**: choose from pre-defined common times if no time is provided.  
 - **Timezone support**: choose a timezone or use the default.  
-- **Supports select, multi-select, status, people, and relation properties**.  
+- **Supports date, select, multi-select, status, people, and relation properties**.  
 - **Summarizes the task** before submitting to Notion.
-- **Add multiple tasks** for efficient management
+- **Add multiple tasks** for efficient management.
 
 ---
 
@@ -43,17 +43,17 @@ pip install notion-client python-dotenv
 ### 3. Set up Notion integration
 1. Go to [Notion Integrations](https://www.notion.so/my-integrations).
 2. Click + New Integration.
-   3. Give it a name.
-   4. Select the workspace where your database lives.
-   5. Under Capabilities, enable:
-      6. Read content.
-      7. Insert content.
-      8. Update content.
-9. Click Submit.
-10. Copy the Internal Integration Token (this is your NOTION_SECRET).
-11. Go to the Access tab and enable access to the page that has your database.
-12. Go to your database on the web and copy the link. Extract the Database ID:
-    13. `https://www.notion.so/myworkspace/<DATABASE_ID>?v=...`.
+   - Give it a name.
+   - Select the workspace where your database lives.
+   - Under Capabilities, enable:
+     - Read content.
+     - Insert content.
+     - Update content.
+3. Click Submit.
+4. Copy the Internal Integration Token (this is your NOTION_SECRET).
+5. Go to the Access tab and enable access to the page that has your database.
+6. Go to your database on the web and copy the link. Extract the Database ID:
+   - `https://www.notion.so/myworkspace/<DATABASE_ID>?v=...`.
 
 ### 4. Configure .env
 Modify the `.sample_env` file with your desired information. Remember to rename the file to `.env` afterward.
