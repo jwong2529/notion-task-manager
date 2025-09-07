@@ -90,14 +90,23 @@ def format_date_input(user_input: str):
             wd_full = norm_weekday(tokens[1])
             if wd_full in weekdays_map:
                 target = weekdays_map[wd_full]
-                today = now.weekday()
+                today = now.weekday()  # Monday=0, Sunday=6
+
                 if tokens[0] == "this":
-                    days_ahead = (target - today) % 7
-                else:  # next
-                    days_ahead = (target - today) % 7
-                    if days_ahead == 0:
-                        days_ahead = 7
-                dt = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
+                    # Start of this week (Monday)
+                    start_of_week = now - timedelta(days=today)
+                    candidate = start_of_week + timedelta(days=target)
+                    # If that day already passed, roll forward to next week
+                    if candidate.date() < now.date():
+                        candidate += timedelta(weeks=1)
+                    dt = candidate
+
+                else:  # "next"
+                    # Start of *next* calendar week (Monday)
+                    start_of_next_week = now - timedelta(days=today) + timedelta(weeks=1)
+                    dt = start_of_next_week + timedelta(days=target)
+
+                dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
                 consumed = 2
 
         # Just a weekday ("tuesday"/"tue")
