@@ -8,8 +8,14 @@ from zoneinfo import ZoneInfo
 # Load env variables
 load_dotenv()
 NOTION_TOKEN = os.getenv("NOTION_SECRET")
-DATABASE_ID = os.getenv("DATABASE_ID")
-PROPERTIES = [p.strip() for p in os.getenv("PROPERTIES", "").split(",")]
+
+# Task manager DB
+TASK_MANAGER_DB_ID = os.getenv("TASK_MANAGER_DB_ID")
+TASK_MANAGER_PROPS = [p.strip() for p in os.getenv("TASK_MANAGER_PROPS", "").split(",")]
+
+# Time tracker DB
+TIME_TRACKER_DB_ID = os.getenv("TIME_TRACKER_DB_ID")
+TIME_TRACKER_PROPS = [p.strip() for p in os.getenv("TIME_TRACKER_PROPS", "").split(",")]
 
 DEFAULT_TZ = os.getenv("DEFAULT_TIMEZONE", "UTC")
 TIMEZONE_CHOICES = [t.strip() for t in os.getenv("TIMEZONE_CHOICES", "").split(",") if t.strip()]
@@ -286,6 +292,15 @@ def prompt_for_property(prop_name, prop_info):
             return None
         return {"relation": [{"id": user_input}]}
 
+    elif prop_type == "number":
+        while True:
+            user_input = input("Enter a number: ").strip()
+            if not user_input:
+                return None
+            try:
+                return {"number": float(user_input)}
+            except ValueError:
+                print("⚠️ Invalid number.")
     else:
         print(f"⚠️ Skipping unsupported type: {prop_type}")
         return None
@@ -305,14 +320,34 @@ def summarize_task(properties):
             print(f"{k}: {', '.join(vals)}")
         elif "date" in v:
             print(f"{k}: {v['date']['start']}")
+        elif "number" in v:
+            print(f"{k}: {v['number']}")
         else:
             print(f"{k}: [set]")
 
 def interactive_add_task():
+    # Choose which database
+    print("\nWhich database do you want to add to?")
+    print("[1] Task Manager")
+    print("[2] Time Tracker")
+    choice = input("Enter number: ").strip()
+
+    if choice == "1":
+        DATABASE_ID = TASK_MANAGER_DB_ID
+        PROPERTIES = TASK_MANAGER_PROPS
+        db_label = "Task Manager"
+    elif choice == "2":
+        DATABASE_ID = TIME_TRACKER_DB_ID
+        PROPERTIES = TIME_TRACKER_PROPS
+        db_label = "Time Tracker"
+    else:
+        print("⚠️ Invalid choice.")
+        return
+
     db = notion.databases.retrieve(DATABASE_ID)
     properties = db["properties"]
 
-    print("\n=== Add a New Task ===")
+    print(f"\n=== Add a New Entry to {db_label} ===")
     notion_props = {}
     for prop_name in PROPERTIES:
         if prop_name not in properties:
@@ -328,13 +363,13 @@ def interactive_add_task():
     )
 
     summarize_task(notion_props)
-    print("\n✅ Task added:", page["url"])
+    print(f"\n✅ Added to {db_label}:", page["url"])
 
 if __name__ == "__main__":
     while True:
         interactive_add_task()
-        again = input("\n➕ Do you want to add another task? (y/n): ").strip().lower()
+        again = input("\n➕ Do you want to add another entry? (y/n): ").strip().lower()
         if again not in ("y", "yes"):
-            print("👋 Done adding tasks.")
+            print("👋 Done adding entries.")
             break
 
