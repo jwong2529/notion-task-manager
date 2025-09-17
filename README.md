@@ -1,8 +1,8 @@
-# Notion Task Manager
+# Notion Manager
 
-A Python CLI tool to quickly add tasks to a Notion database, with flexible input for dates, timezones, and recurring “quick access” times.  
+A Python CLI tool to quickly add entries to Notion databases, with flexible input for dates, timezones, and recurring “quick access” times.  
 
-I'm using this script to manage assignments and deadlines in my Notion database through the CLI instead of the Notion UI (because it's overstimulating 😕).
+I'm using this script to manage assignments, deadlines, and task durations in my Notion databases through the CLI instead of the Notion UI (because it's overstimulating 😕).
 
 ---
 
@@ -15,6 +15,7 @@ I'm using this script to manage assignments and deadlines in my Notion database 
 - **Supports date, select, multi-select, status, people, and relation properties**.  
 - **Summarizes the task** before submitting to Notion.
 - **Add multiple tasks** for efficient management.
+- **Switch databases** easily.
 
 ---
 
@@ -63,6 +64,8 @@ Modify the `.sample_env` file with your desired information. Remember to rename 
 - DEFAULT_TIMEZONE: The timezone used when the user skips the timezone prompts.
 - TIMEZONE_CHOICES: List of available timezones to choose from.
 - QUICK_ACCESS_TIMES: Pre-defined times to quickly assign deadlines, e.g. 11:59 PM for most assignments.
+
+Make sure the variable names in your `.env` file match the `os.getenv(...)` calls in the code exactly.
 
 ### 5. Run the script
 ```bash
