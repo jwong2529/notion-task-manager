@@ -90,6 +90,9 @@ def format_date_input(user_input: str):
         elif tokens[0] in ("tomorrow",):
             dt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             consumed = 1
+        elif tokens[0] in ("yesterday",):
+            dt = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            consumed = 1
 
         # "this/next <weekday>"
         elif tokens[0] in ("this", "next") and len(tokens) >= 2:
@@ -325,25 +328,7 @@ def summarize_task(properties):
         else:
             print(f"{k}: [set]")
 
-def interactive_add_task():
-    # Choose which database
-    print("\nWhich database do you want to add to?")
-    print("[1] Task Manager")
-    print("[2] Time Tracker")
-    choice = input("Enter number: ").strip()
-
-    if choice == "1":
-        DATABASE_ID = TASK_MANAGER_DB_ID
-        PROPERTIES = TASK_MANAGER_PROPS
-        db_label = "Task Manager"
-    elif choice == "2":
-        DATABASE_ID = TIME_TRACKER_DB_ID
-        PROPERTIES = TIME_TRACKER_PROPS
-        db_label = "Time Tracker"
-    else:
-        print("⚠️ Invalid choice.")
-        return
-
+def interactive_add_task(DATABASE_ID, PROPERTIES, db_label):
     db = notion.databases.retrieve(DATABASE_ID)
     properties = db["properties"]
 
@@ -366,10 +351,44 @@ def interactive_add_task():
     print(f"\n✅ Added to {db_label}:", page["url"])
 
 if __name__ == "__main__":
+    DATABASE_ID = None
+    PROPERTIES = None
+    db_label = None
+
     while True:
-        interactive_add_task()
-        again = input("\n➕ Do you want to add another entry? (y/n): ").strip().lower()
-        if again not in ("y", "yes"):
+        # Ask for DB if none selected yet or user wants to switch
+        if DATABASE_ID is None:
+            print("\nWhich database do you want to add to?")
+            print("[1] Task Manager")
+            print("[2] Time Tracker")
+            choice = input("Enter number: ").strip()
+
+            if choice == "1":
+                DATABASE_ID = TASK_MANAGER_DB_ID
+                PROPERTIES = TASK_MANAGER_PROPS
+                db_label = "Task Manager"
+            elif choice == "2":
+                DATABASE_ID = TIME_TRACKER_DB_ID
+                PROPERTIES = TIME_TRACKER_PROPS
+                db_label = "Time Tracker"
+            else:
+                print("⚠️ Invalid choice.")
+                continue
+
+        interactive_add_task(DATABASE_ID, PROPERTIES, db_label)
+
+        again = input(
+            "\n➕ Add another entry? (y = same DB / s = switch DB / n = quit): "
+        ).strip().lower()
+
+        if again in ("y", "yes"):
+            continue
+        elif again in ("s", "switch"):
+            # Reset DB so next loop will ask again
+            DATABASE_ID = None
+            PROPERTIES = None
+            db_label = None
+        else:
             print("👋 Done adding entries.")
             break
 
