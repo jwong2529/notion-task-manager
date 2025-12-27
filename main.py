@@ -5,6 +5,32 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+import itertools
+import threading
+import time
+
+def spinner(message="Working"):
+    stop = False
+
+    def run():
+        for c in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
+            if stop:
+                break
+            sys.stdout.write(f"\r{message} {c}")
+            sys.stdout.flush()
+            time.sleep(0.08)
+        sys.stdout.write("\r" + " " * (len(message) + 4) + "\r")
+
+    thread = threading.Thread(target=run)
+    thread.start()
+
+    def end():
+        nonlocal stop
+        stop = True
+        thread.join()
+
+    return end
+
 def load_databases_from_env():
     databases = {}
 
@@ -496,33 +522,38 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
     
     pages = []
 
-    # create first page
-    first_page = notion.pages.create(
-        parent={"database_id": DATABASE_ID},
-        properties=notion_props
-    )
-    pages.append(first_page)
+    stop_spinner = spinner("Creating tasks")
 
-    # duplicate for recurrences
-    for dt in recurrences:
-        dup_props = {}
-
-        for k, v in notion_props.items():
-            if "date" in v:
-                dup_props[k] = {
-                    "date": {
-                        "start": dt.isoformat() if isinstance(dt, datetime) else dt
-                    }
-                }
-            else:
-                dup_props[k] = v
-
-        pages.append(
-            notion.pages.create(
-                parent={"database_id": DATABASE_ID},
-                properties=dup_props
-            )
+    try:
+        # create first page
+        first_page = notion.pages.create(
+            parent={"database_id": DATABASE_ID},
+            properties=notion_props
         )
+        pages.append(first_page)
+
+        # duplicate for recurrences
+        for dt in recurrences:
+            dup_props = {}
+
+            for k, v in notion_props.items():
+                if "date" in v:
+                    dup_props[k] = {
+                        "date": {
+                            "start": dt.isoformat() if isinstance(dt, datetime) else dt
+                        }
+                    }
+                else:
+                    dup_props[k] = v
+
+            pages.append(
+                notion.pages.create(
+                    parent={"database_id": DATABASE_ID},
+                    properties=dup_props
+                )
+            )
+    finally:
+        stop_spinner()
 
     # summary (once)
     summarize_task(notion_props)
