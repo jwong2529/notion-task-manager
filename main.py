@@ -2,7 +2,7 @@ import sys
 import os
 from notion_client import Client
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 # Load env variables
@@ -36,21 +36,13 @@ def pick_timezone():
         return DEFAULT_TZ
     if choice.isdigit() and 1 <= int(choice) <= len(TIMEZONE_CHOICES):
         return TIMEZONE_CHOICES[int(choice)-1]
-    print("⚠️ Invalid choice, using default.")
+    print("Invalid choice, using default.")
     return DEFAULT_TZ
 
 def format_date_input(user_input: str):
-    """Convert user date input into Notion date format (with optional time).
-       Supports:
-       - Dates: YYYY-MM-DD, MM-DD, and shorthand MMDD like '817' or '0817'
-       - Weekdays: 'this tuesday', 'next tues', or just 'tuesday'/'tue' (case-insensitive)
-       - Shortcuts: 'today', 'tomorrow'
-       - Times: HH:MM (24h), H:MM AM/PM, digit-only '232' or '1259',
-                and digit-only with AM/PM like '232 PM'
-    """
+    """Convert user date input into Notion date format (with optional time)."""
     import re
     import calendar
-    from datetime import timedelta
 
     if not user_input.strip():
         return None
@@ -132,15 +124,41 @@ def format_date_input(user_input: str):
         remainder = " ".join(parts[consumed:]).strip()
         time_part = remainder if remainder else None
 
-    # --- Parse date (original numeric parsing; only if weekday/shortcut didn't set dt) ---
-    if dt is None and date_part.isdigit() and len(date_part) in (3, 4):
-        if len(date_part) == 3:   # e.g., 817 -> 8/17
+    if dt is None and date_part.isdigit():
+        year_explicit = False
+
+        if len(date_part) == 3: #817
             month = int(date_part[0])
             day = int(date_part[1:])
-        else:                     # e.g., 0817 -> 08/17
+            year = now.year
+        
+        elif len(date_part) == 4: # 0817
             month = int(date_part[:2])
             day = int(date_part[2:])
-        dt = datetime(now.year, month, day)
+            year = now.year
+
+        elif len(date_part) == 6: # 011726
+            month = int(date_part[:2])
+            day = int(date_part[2:4])
+            yy = int(date_part[4:])
+            year = 2000 + yy if yy <= 69 else 1900 + yy
+            year_explicit = True
+        
+        elif len(date_part) == 8: #01172026
+            month = int(date_part[:2])
+            day = int(date_part[2:4])
+            year = int(date_part[4:])
+            year_explicit = True
+        
+        else:
+            month = day = year = None
+        
+        if month and day and year:
+            dt = datetime(year, month, day)
+
+            # Roll forward if implied-year date is in the past
+            if not year_explicit and dt.date() < now.date():
+                dt = dt.replace(year = now.year + 1)
 
     if dt is None:
         for fmt in ("%Y-%m-%d", "%m-%d"):
@@ -148,12 +166,14 @@ def format_date_input(user_input: str):
                 dt = datetime.strptime(date_part, fmt)
                 if fmt == "%m-%d":
                     dt = dt.replace(year=now.year)
+                    if dt.date() < now.date():
+                        dt = dt.replace(year = now.year + 1)
                 break
             except ValueError:
                 continue
 
     if dt is None:
-        raise ValueError("Invalid date. Examples: '2025-08-17', '08-17', '817', or '0817'; also 'today', 'tuesday', 'this fri', 'next wed'.")
+        raise ValueError("Invalid date. Examples: '2025-08-17', '08-17', '817', '0817', '011726', or '01172026'; also 'today', 'tuesday', 'this fri', 'next wed'.")
 
     # --- Parse time ---
     if time_part:
@@ -281,7 +301,7 @@ def prompt_for_property(prop_name, prop_info):
             try:
                 return format_date_input(user_input)
             except ValueError as e:
-                print(f"⚠️ {e}. Try again.")
+                print(f"{e}. Try again.")
 
     elif prop_type == "people":
         user_input = input("Enter Notion user ID: ").strip()
@@ -303,9 +323,9 @@ def prompt_for_property(prop_name, prop_info):
             try:
                 return {"number": float(user_input)}
             except ValueError:
-                print("⚠️ Invalid number.")
+                print("Invalid number.")
     else:
-        print(f"⚠️ Skipping unsupported type: {prop_type}")
+        print(f"Skipping unsupported type: {prop_type}")
         return None
 
 def summarize_task(properties):
@@ -336,7 +356,7 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label):
     notion_props = {}
     for prop_name in PROPERTIES:
         if prop_name not in properties:
-            print(f"⚠️ Property '{prop_name}' not found in schema, skipping.")
+            print(f"Property '{prop_name}' not found in schema, skipping.")
             continue
         value = prompt_for_property(prop_name, properties[prop_name])
         if value:
@@ -372,13 +392,13 @@ if __name__ == "__main__":
                 PROPERTIES = TIME_TRACKER_PROPS
                 db_label = "Time Tracker"
             else:
-                print("⚠️ Invalid choice.")
+                print("Invalid choice.")
                 continue
 
         interactive_add_task(DATABASE_ID, PROPERTIES, db_label)
 
         again = input(
-            "\n➕ Add another entry? (y = same DB / s = switch DB / n = quit): "
+            "\nAdd another entry? (y = same DB / s = switch DB / n = quit): "
         ).strip().lower()
 
         if again in ("y", "yes"):
@@ -389,6 +409,6 @@ if __name__ == "__main__":
             PROPERTIES = None
             db_label = None
         else:
-            print("👋 Done adding entries.")
+            print("Done adding entries.")
             break
 
