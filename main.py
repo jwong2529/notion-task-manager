@@ -50,7 +50,7 @@ def pick_timezone():
     print("Invalid choice, using default.")
     return DEFAULT_TZ
 
-def format_date_input(user_input: str, allow_time =True):
+def format_date_input(user_input: str, allow_time =True, tz=None):
     """Convert user date input into Notion date format (with optional time)."""
     import re
     import calendar
@@ -62,11 +62,12 @@ def format_date_input(user_input: str, allow_time =True):
         if not parts:
             return None, None, parts
 
+        # Case 1: repeat
         last = parts[-1].lower()
-
         if last in ("repeat", "r"):
             return "repeat", 1, parts[:-1]
 
+        # Case 2: count-based (3d / 2w)
         m = re.match(r"^(\d+)([dw])$", last)
         if m:
             count = int(m.group(1))
@@ -74,7 +75,35 @@ def format_date_input(user_input: str, allow_time =True):
             delta = timedelta(days=1) if unit == "d" else timedelta(weeks=1)
             return "count", (count, delta), parts[:-1]
 
+        # Case 3: until-date (d <date...> / w <date...>)
+        if len(parts) >= 2 and parts[-2].lower() in ("d", "w"):
+            unit = parts[-2].lower()
+            end_date_tokens = parts[-1:]
+
+            # allow multi-token natural dates: keep shifting left
+            i = len(parts) - 1
+            while i - 1 >= 0 and parts[i - 1].lower() not in ("d", "w"):
+                end_date_tokens.insert(0, parts[i - 1])
+                i -= 1
+
+            delta = timedelta(days=1) if unit == "d" else timedelta(weeks=1)
+            return "until", (delta, end_date_tokens), parts[:i - 1]
+
         return None, None, parts
+
+    def parse_end_date(tokens):
+        if not tokens:
+            return None
+
+        # Reuse the same function recursively, but disable recurrence
+        result = format_date_input(" ".join(tokens), allow_time=False, tz=tz)
+        start = result["date"]["start"]
+
+        # Convert to datetime for comparison
+        if "T" in start:
+            return datetime.fromisoformat(start)
+        else:
+            return datetime.fromisoformat(start + "T00:00:00")
 
     # Original split (kept)
     parts = user_input.strip().split()
@@ -82,7 +111,8 @@ def format_date_input(user_input: str, allow_time =True):
 
     date_part = parts[0]
     time_part = " ".join(parts[1:]) if len(parts) > 1 else None
-    tz = ZoneInfo(pick_timezone())
+    if tz is None:
+        tz = ZoneInfo(pick_timezone())
 
     now = datetime.now()
     dt = None  # will be set by weekday/shortcut OR by numeric parsing below
@@ -218,7 +248,27 @@ def format_date_input(user_input: str, allow_time =True):
             count, delta = recurrence_info
             return [dt + i * delta for i in range(count)]
 
+        if recurrence_mode == "until":
+            delta, end_tokens = recurrence_info
+            end_dt = parse_end_date(end_tokens)
+
+            if not end_dt:
+                return [dt]
+
+            MAX_RECURRENCES = 200
+            dates = []
+            cur = dt
+            while cur.date() <= end_dt.date():
+                if len(dates) >= MAX_RECURRENCES:
+                    raise ValueError(
+                        f"Recurrence exceeds {MAX_RECURRENCES} entries."
+                    )
+                dates.append(cur)
+                cur += delta
+            return dates
+
         return [dt]
+
 
     had_explicit_time = False
 
@@ -436,7 +486,14 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
         if isinstance(v, dict) and "_recurrences" in v:
             recurrences = v.pop("_recurrences")
             break
-
+    
+    total = 1 + len(recurrences)
+    print(f"\nThis will create {total} task(s).")
+    confirm = input("Continue? (y/n): ").strip().lower()
+    if confirm not in ("y", "yes"):
+        print("Cancelled.")
+        return
+    
     pages = []
 
     # create first page
