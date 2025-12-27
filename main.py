@@ -58,8 +58,28 @@ def format_date_input(user_input: str, allow_time =True):
     if not user_input.strip():
         return None
 
+    def parse_recurrence(parts):
+        if not parts:
+            return None, None, parts
+
+        last = parts[-1].lower()
+
+        if last in ("repeat", "r"):
+            return "repeat", 1, parts[:-1]
+
+        m = re.match(r"^(\d+)([dw])$", last)
+        if m:
+            count = int(m.group(1))
+            unit = m.group(2)
+            delta = timedelta(days=1) if unit == "d" else timedelta(weeks=1)
+            return "count", (count, delta), parts[:-1]
+
+        return None, None, parts
+
     # Original split (kept)
     parts = user_input.strip().split()
+    recurrence_mode, recurrence_info, parts = parse_recurrence(parts)
+
     date_part = parts[0]
     time_part = " ".join(parts[1:]) if len(parts) > 1 else None
     tz = ZoneInfo(pick_timezone())
@@ -186,6 +206,22 @@ def format_date_input(user_input: str, allow_time =True):
     if dt is None:
         raise ValueError("Invalid date. Examples: '2025-08-17', '08-17', '817', '0817', '011726', or '01172026'; also 'today', 'tuesday', 'this fri', 'next wed'.")
 
+
+    def build_recurrences(dt):
+        if not recurrence_mode:
+            return [dt]
+
+        if recurrence_mode == "repeat":
+            return [dt, dt + timedelta(weeks=1)]
+
+        if recurrence_mode == "count":
+            count, delta = recurrence_info
+            return [dt + i * delta for i in range(count)]
+
+        return [dt]
+
+    had_explicit_time = False
+
     # --- Parse time ---
     if time_part:
         # 1) Try typical formats first: 24h with colon, then 12h with colon+AM/PM
@@ -193,7 +229,13 @@ def format_date_input(user_input: str, allow_time =True):
             try:
                 t = datetime.strptime(time_part, time_fmt)
                 dt = dt.replace(hour=t.hour, minute=t.minute, tzinfo=tz)
-                return {"date": {"start": dt.isoformat()}}
+                had_explicit_time = True
+
+                dates = build_recurrences(dt)
+                return {
+                    "date": {"start": dates[0].isoformat()},
+                    "_recurrences": dates[1:]
+                }
             except ValueError:
                 pass
 
@@ -230,7 +272,12 @@ def format_date_input(user_input: str, allow_time =True):
                     raise ValueError("Hour must be 00–23 for 24-hour times.")
 
             dt = dt.replace(hour=hour, minute=minute, tzinfo=tz)
-            return {"date": {"start": dt.isoformat()}}
+            had_explicit_time = True
+            dates = build_recurrences(dt)
+            return {
+                "date": {"start": dates[0].isoformat()},
+                "_recurrences": dates[1:]
+            }
 
         # If nothing matched:
         raise ValueError(
@@ -252,11 +299,20 @@ def format_date_input(user_input: str, allow_time =True):
                     return {"date": {"start": dt.isoformat()}}
                 except ValueError:
                     continue
-        # Blank => date-only
-        return {"date": {"start": dt.date().isoformat()}}
 
+        # Blank => date-only
+        dates = build_recurrences(dt)
+        return {
+            "date": {"start": dates[0].date().isoformat()},
+            "_recurrences": [d.date().isoformat() for d in dates[1:]]
+        }
+    
     # Date only (no quick access times configured)
-    return {"date": {"start": dt.date().isoformat()}}
+    dates = build_recurrences(dt)
+    return {
+        "date": {"start": dates[0].date().isoformat()},
+        "_recurrences": [d.date().isoformat() for d in dates[1:]]
+    }
 
 def choose_from_options(options, multi=False):
     """Display numbered options and let user choose by number(s)."""
@@ -365,6 +421,7 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
 
     print(f"\n=== Add a New Entry to {db_label} ===")
     notion_props = {}
+
     for prop_name in PROPERTIES:
         if prop_name not in properties:
             print(f"Property '{prop_name}' not found in schema, skipping.")
@@ -373,13 +430,50 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
         if value:
             notion_props[prop_name] = value
 
-    page = notion.pages.create(
+    # extract recurrences (if any)
+    recurrences = []
+    for v in notion_props.values():
+        if isinstance(v, dict) and "_recurrences" in v:
+            recurrences = v.pop("_recurrences")
+            break
+
+    pages = []
+
+    # create first page
+    first_page = notion.pages.create(
         parent={"database_id": DATABASE_ID},
         properties=notion_props
     )
+    pages.append(first_page)
 
+    # duplicate for recurrences
+    for dt in recurrences:
+        dup_props = {}
+
+        for k, v in notion_props.items():
+            if "date" in v:
+                dup_props[k] = {
+                    "date": {
+                        "start": dt.isoformat() if isinstance(dt, datetime) else dt
+                    }
+                }
+            else:
+                dup_props[k] = v
+
+        pages.append(
+            notion.pages.create(
+                parent={"database_id": DATABASE_ID},
+                properties=dup_props
+            )
+        )
+
+    # summary (once)
     summarize_task(notion_props)
-    print(f"\n✅ Added to {db_label}:", page["url"])
+
+    print(f"\n✅ Added {len(pages)} task(s) to {db_label}:")
+    for p in pages:
+        print(p["url"])
+
 
 if __name__ == "__main__":
 
