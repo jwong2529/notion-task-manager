@@ -12,7 +12,8 @@ I'm using this script to manage assignments, deadlines, and task durations in my
 - **Flexible date input**: supports `YYYY-MM-DD`, `MM-DD`, `MMDD`, natural weekday expressions, shortcuts, and optional time.  
 - **Quick-access times**: choose from pre-defined common times if no time is provided.  
 - **Timezone support**: choose a timezone or use the default.  
-- **Supports date, select, multi-select, status, people, and relation properties**.  
+- **Supports date, select, multi-select, status, people, and relation properties**. 
+- **Basic support for recurring tasks**: `{date} Nw` repeats for N weeks, `{date} Nd` repeats for N consecutive days, `{date} w {date}` repeats weekly until the specified date.
 - **Summarizes the task** before submitting to Notion.
 - **Add multiple entries** for efficient management.
 - **Switch databases** easily.
