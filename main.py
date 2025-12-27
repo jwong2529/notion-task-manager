@@ -4,6 +4,7 @@ from notion_client import Client
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+import styling
 
 import itertools
 import threading
@@ -16,7 +17,7 @@ def spinner(message="Working"):
         for c in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
             if stop:
                 break
-            sys.stdout.write(f"\r{message} {c}")
+            sys.stdout.write(f"\r{styling.dim(message)} {c}")
             sys.stdout.flush()
             time.sleep(0.08)
         sys.stdout.write("\r" + " " * (len(message) + 4) + "\r")
@@ -45,9 +46,8 @@ def load_databases_from_env():
         props_raw = os.getenv(f"{prefix}_PROPS", "")
         allow_time = os.getenv(f"{prefix}_ALLOW_TIME", "true").lower() == "true"
 
-
         if not label or not db_id:
-            print(f"Skipping database '{name}' (missing LABEL or ID)")
+            print(styling.warn(f"Skipping database '{name}' (missing LABEL or ID)"))
             continue
             
         properties = [p.strip() for p in props_raw.split(",") if p.strip()]
@@ -65,7 +65,7 @@ def pick_timezone():
     """Pick timezone from list or fallback to default."""
     if not TIMEZONE_CHOICES:
         return DEFAULT_TZ
-    print("\nChoose a timezone:")
+    print(f"\n{styling.h('Choose a timezone')}")
     for i, tz in enumerate(TIMEZONE_CHOICES, 1):
         print(f"[{i}] {tz}")
     choice = input(f"Enter number (or leave blank for default={DEFAULT_TZ}): ").strip()
@@ -73,7 +73,7 @@ def pick_timezone():
         return DEFAULT_TZ
     if choice.isdigit() and 1 <= int(choice) <= len(TIMEZONE_CHOICES):
         return TIMEZONE_CHOICES[int(choice)-1]
-    print("Invalid choice, using default.")
+    print(styling.warn("Invalid choice, using default."))
     return DEFAULT_TZ
 
 def format_date_input(user_input: str, allow_time =True, tz=None):
@@ -295,7 +295,6 @@ def format_date_input(user_input: str, allow_time =True, tz=None):
 
         return [dt]
 
-
     had_explicit_time = False
 
     # --- Parse time ---
@@ -420,7 +419,7 @@ def prompt_for_property(prop_name, prop_info, allow_time):
         return {"title": [{"text": {"content": user_input}}]}
 
     # Non-title: keep the header line, then inputs on following lines
-    print(f"\n{prop_name} ({prop_type}):")
+    print(f"\n{styling.h(f'{prop_name}')} {styling.dim(f'({prop_type})')}")
 
     if prop_type in ("select", "multi_select", "status"):
         options = [opt["name"] for opt in prop_info[prop_type].get("options", [])]
@@ -435,8 +434,8 @@ def prompt_for_property(prop_name, prop_info, allow_time):
             return {"status": {"name": choice}}
 
     elif prop_type == "date":
-        print("Enter a date (examples: '2025-08-17 11:59 PM', '08-17', '0817 1159 PM')")
-        print("Shortcuts: 'today', 'tomorrow', 'this tue', 'next fri'")
+        print(styling.dim("Enter a date (examples: '2025-08-17 11:59 PM', '08-17', '0817 1159 PM')"))
+        print(styling.dim("Shortcuts: 'today', 'tomorrow', 'this tue', 'next fri'"))
         while True:
             user_input = input("Date: ").strip()
             if not user_input:
@@ -444,7 +443,7 @@ def prompt_for_property(prop_name, prop_info, allow_time):
             try:
                 return format_date_input(user_input, allow_time=allow_time)
             except ValueError as e:
-                print(f"{e}. Try again.")
+                print(styling.err(f"{e}. Try again."))
 
     elif prop_type == "people":
         user_input = input("Enter Notion user ID: ").strip()
@@ -466,41 +465,40 @@ def prompt_for_property(prop_name, prop_info, allow_time):
             try:
                 return {"number": float(user_input)}
             except ValueError:
-                print("Invalid number.")
+                print(styling.err("Invalid number."))
     else:
-        print(f"Skipping unsupported type: {prop_type}")
+        print(styling.warn(f"Skipping unsupported type: {prop_type}"))
         return None
 
 def summarize_task(properties):
-    """Pretty-print a summary of what was just added."""
-    print("\n=== Task Summary ===")
+    print(f"\n{styling.h('Task Summary')}")
     for k, v in properties.items():
         if "title" in v:
-            print(f"{k}: {v['title'][0]['text']['content']}")
+            print(f"{styling.dim(k)}: {v['title'][0]['text']['content']}")
         elif "select" in v:
-            print(f"{k}: {v['select']['name']}")
+            print(f"{styling.dim(k)}: {v['select']['name']}")
         elif "status" in v:
-            print(f"{k}: {v['status']['name']}")
+            print(f"{styling.dim(k)}: {v['status']['name']}")
         elif "multi_select" in v:
             vals = [opt["name"] for opt in v["multi_select"]]
-            print(f"{k}: {', '.join(vals)}")
+            print(f"{styling.dim(k)}: {', '.join(vals)}")
         elif "date" in v:
-            print(f"{k}: {v['date']['start']}")
+            print(f"{styling.dim(k)}: {v['date']['start']}")
         elif "number" in v:
-            print(f"{k}: {v['number']}")
+            print(f"{styling.dim(k)}: {v['number']}")
         else:
-            print(f"{k}: [set]")
+            print(f"{styling.dim(k)}: [set]")
 
 def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
     db = notion.databases.retrieve(DATABASE_ID)
     properties = db["properties"]
 
-    print(f"\n=== Add a New Entry to {db_label} ===")
+    print(f"\n{styling.h(f'Add a New Entry → {db_label}')}")
     notion_props = {}
 
     for prop_name in PROPERTIES:
         if prop_name not in properties:
-            print(f"Property '{prop_name}' not found in schema, skipping.")
+            print(styling.warn(f"Property '{prop_name}' not found in schema, skipping."))
             continue
         value = prompt_for_property(prop_name, properties[prop_name], allow_time)
         if value:
@@ -514,15 +512,15 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
             break
     
     total = 1 + len(recurrences)
-    print(f"\nThis will create {total} task(s).")
+    print(f"""\n{styling.dim(f"This will create {total} {'entry' if total == 1 else 'entries'}.")}""")
     confirm = input("Continue? (y/n): ").strip().lower()
     if confirm not in ("y", "yes"):
-        print("Cancelled.")
+        print(styling.warn("Cancelled."))
         return
     
     pages = []
 
-    stop_spinner = spinner("Creating tasks")
+    stop_spinner = spinner(f"Creating {'entry' if total == 1 else 'entries'}...")
 
     try:
         # create first page
@@ -555,10 +553,10 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
     finally:
         stop_spinner()
 
-    # summary (once)
+    # summary 
     summarize_task(notion_props)
 
-    print(f"\n✅ Added {len(pages)} task(s) to {db_label}:")
+    print(f"\n{styling.ok(f'✓ Added {len(pages)} task(s) to {db_label}')}")
     for p in pages:
         print(p["url"])
 
@@ -578,7 +576,7 @@ if __name__ == "__main__":
 
     DATABASES = load_databases_from_env()
     if not DATABASES:
-        print("No databases configured. Check your .env file.")
+        print(styling.err("No databases configured. Check your .env file."))
         sys.exit(1)
 
     DATABASE_ID = None
@@ -588,14 +586,14 @@ if __name__ == "__main__":
     while True:
         keys = list(DATABASES.keys())
 
-        print("\nWhich database do you want to add to?")
+        print(f"\n{styling.h('Choose a database')}")
         for i, key in enumerate(keys, 1):
             print(f"[{i}] {DATABASES[key]['label']}")
 
         choice = input("Enter number: ").strip()
 
         if not choice.isdigit() or not (1 <= int(choice) <= len(keys)):
-            print("Invalid choice.")
+            print(styling.err("Invalid choice."))
             continue
 
         selected = DATABASES[keys[int(choice) - 1]]
@@ -618,6 +616,6 @@ if __name__ == "__main__":
             PROPERTIES = None
             db_label = None
         else:
-            print("Done adding entries.")
+            print(styling.ok("Done adding entries."))
             break
 
