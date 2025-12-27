@@ -1,7 +1,22 @@
+# Notion API token
 NOTION_SECRET=your_notion_secret
-DATABASE_ID=your_database_id
 
-PROPERTIES=list_of_your_desired_database_properties
+# Timezone settings
 DEFAULT_TIMEZONE=America/Los_Angeles
-TIMEZONE_CHOICES=America/Los_Angeles, America/New_York
+TIMEZONE_CHOICES=America/Los_Angeles,America/New_York
 QUICK_ACCESS_TIMES=11:59 PM
+
+# Databases to configure (comma-separated)
+DATABASES=database_1,database_2
+
+# Sample Database 1 config
+DB_DATABASE_1_LABEL=Database 1
+DB_DATABASE_1_ID=your_database_1_db_id_here
+DB_DATABASE_1_PROPS=Task name,Tags,Status,Due date,Priority
+DB_DATABASE_1_ALLOW_TIME=true
+
+# Sample Database 2 config
+DB_DATABASE_2_LABEL=Database 2
+DB_DATABASE_2_ID=your_database_2_db_id_here
+DB_DATABASE_2_PROPS=Category,Tags,Hours spent,Date
+DB_DATABASE_2_ALLOW_TIME=false

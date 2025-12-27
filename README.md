@@ -8,13 +8,13 @@ I'm using this script to manage assignments, deadlines, and task durations in my
 
 ## What It Does
 
-- **Interactive prompts** for all task properties defined in your Notion database.  
+- **Interactive prompts** for all properties defined in your Notion database.  
 - **Flexible date input**: supports `YYYY-MM-DD`, `MM-DD`, `MMDD`, natural weekday expressions, shortcuts, and optional time.  
 - **Quick-access times**: choose from pre-defined common times if no time is provided.  
 - **Timezone support**: choose a timezone or use the default.  
 - **Supports date, select, multi-select, status, people, and relation properties**.  
 - **Summarizes the task** before submitting to Notion.
-- **Add multiple tasks** for efficient management.
+- **Add multiple entries** for efficient management.
 - **Switch databases** easily.
 
 ---
@@ -58,12 +58,15 @@ pip install notion-client python-dotenv
 
 ### 4. Configure .env
 Modify the `.sample_env` file with your desired information. Remember to rename the file to `.env` afterward.
-- NOTION_SECRET: Your Notion integration token.
-- DATABASE_ID: ID of the database where tasks will be added.
-- PROPERTIES: List of property names in the database you want to be prompted for.
-- DEFAULT_TIMEZONE: The timezone used when the user skips the timezone prompts.
-- TIMEZONE_CHOICES: List of available timezones to choose from.
-- QUICK_ACCESS_TIMES: Pre-defined times to quickly assign deadlines, e.g. 11:59 PM for most assignments.
+- `NOTION_SECRET`: Your Notion integration token.
+- `DEFAULT_TIMEZONE`: The timezone used when the user skips the timezone prompts.
+- `TIMEZONE_CHOICES`: List of available timezones to choose from.
+- `QUICK_ACCESS_TIMES`: Pre-defined times to quickly assign deadlines, e.g. 11:59 PM for most HW assignments.
+- `DATABASES`: Comma-separated list of database keys. Each key must have corresponding `DB_<KEY>_LABEL`, `DB_<KEY>_ID`, `DB_<KEY>_PROPS`, and `DB_<KEY>_ALLOW_TIME`.
+   - `DB_<KEY>_LABEL`: Name of the database.
+   - `DB_<KEY>_ID`: ID of the database.
+   - `DB_<KEY>_PROPS`: List of property names in the database you want to be prompted for.
+   - `DB_<KEY>_ALLOW_TIME`: Determines whether the tool will prompt for quick-access times.
 
 Make sure the variable names in your `.env` file match the `os.getenv(...)` calls in the code exactly.
 
