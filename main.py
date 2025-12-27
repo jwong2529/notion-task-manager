@@ -5,24 +5,35 @@ from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-# Load env variables
-load_dotenv()
-NOTION_TOKEN = os.getenv("NOTION_SECRET")
+def load_databases_from_env():
+    databases = {}
 
-# Task manager DB
-TASK_MANAGER_DB_ID = os.getenv("TASK_MANAGER_DB_ID")
-TASK_MANAGER_PROPS = [p.strip() for p in os.getenv("TASK_MANAGER_PROPS", "").split(",")]
+    raw = os.getenv("DATABASES", "")
+    names = [n.strip().lower() for n in raw.split(",") if n.strip()]
 
-# Time tracker DB
-TIME_TRACKER_DB_ID = os.getenv("TIME_TRACKER_DB_ID")
-TIME_TRACKER_PROPS = [p.strip() for p in os.getenv("TIME_TRACKER_PROPS", "").split(",")]
+    for name in names:
+        prefix = f"DB_{name.upper()}"
 
-DEFAULT_TZ = os.getenv("DEFAULT_TIMEZONE", "UTC")
-TIMEZONE_CHOICES = [t.strip() for t in os.getenv("TIMEZONE_CHOICES", "").split(",") if t.strip()]
-QUICK_ACCESS_TIMES = [t.strip() for t in os.getenv("QUICK_ACCESS_TIMES", "").split(",") if t.strip()]
+        label = os.getenv(f"{prefix}_LABEL")
+        db_id = os.getenv(f"{prefix}_ID")
+        props_raw = os.getenv(f"{prefix}_PROPS", "")
+        allow_time = os.getenv(f"{prefix}_ALLOW_TIME", "true").lower() == "true"
 
-# Init client
-notion = Client(auth=NOTION_TOKEN)
+
+        if not label or not db_id:
+            print(f"Skipping database '{name}' (missing LABEL or ID)")
+            continue
+            
+        properties = [p.strip() for p in props_raw.split(",") if p.strip()]
+
+        databases[name] = {
+            "label": label,
+            "id": db_id,
+            "properties": properties,
+            "allow_time": allow_time,
+        }
+    
+    return databases
 
 def pick_timezone():
     """Pick timezone from list or fallback to default."""
@@ -39,7 +50,7 @@ def pick_timezone():
     print("Invalid choice, using default.")
     return DEFAULT_TZ
 
-def format_date_input(user_input: str):
+def format_date_input(user_input: str, allow_time =True):
     """Convert user date input into Notion date format (with optional time)."""
     import re
     import calendar
@@ -227,7 +238,7 @@ def format_date_input(user_input: str):
         )
 
     # --- No time given -> optionally offer quick access times, else date-only ---
-    if QUICK_ACCESS_TIMES:
+    if allow_time and QUICK_ACCESS_TIMES:
         print("\nChoose a hardcoded time or leave blank for no time:")
         for i, t in enumerate(QUICK_ACCESS_TIMES, 1):
             print(f"[{i}] {t}")
@@ -264,7 +275,7 @@ def choose_from_options(options, multi=False):
                 return options[idx-1]
         return None
 
-def prompt_for_property(prop_name, prop_info):
+def prompt_for_property(prop_name, prop_info, allow_time):
     """Ask user for input depending on property type and return Notion-formatted value."""
     prop_type = prop_info["type"]
 
@@ -299,7 +310,7 @@ def prompt_for_property(prop_name, prop_info):
             if not user_input:
                 return None
             try:
-                return format_date_input(user_input)
+                return format_date_input(user_input, allow_time=allow_time)
             except ValueError as e:
                 print(f"{e}. Try again.")
 
@@ -348,7 +359,7 @@ def summarize_task(properties):
         else:
             print(f"{k}: [set]")
 
-def interactive_add_task(DATABASE_ID, PROPERTIES, db_label):
+def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
     db = notion.databases.retrieve(DATABASE_ID)
     properties = db["properties"]
 
@@ -358,7 +369,7 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label):
         if prop_name not in properties:
             print(f"Property '{prop_name}' not found in schema, skipping.")
             continue
-        value = prompt_for_property(prop_name, properties[prop_name])
+        value = prompt_for_property(prop_name, properties[prop_name], allow_time)
         if value:
             notion_props[prop_name] = value
 
@@ -371,31 +382,47 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label):
     print(f"\n✅ Added to {db_label}:", page["url"])
 
 if __name__ == "__main__":
+
+    # Load env variables
+    load_dotenv()
+    NOTION_TOKEN = os.getenv("NOTION_SECRET")
+
+    DEFAULT_TZ = os.getenv("DEFAULT_TIMEZONE", "UTC")
+    TIMEZONE_CHOICES = [t.strip() for t in os.getenv("TIMEZONE_CHOICES", "").split(",") if t.strip()]
+    QUICK_ACCESS_TIMES = [t.strip() for t in os.getenv("QUICK_ACCESS_TIMES", "").split(",") if t.strip()]   
+
+    # Init client
+    notion = Client(auth=NOTION_TOKEN)  
+
+    DATABASES = load_databases_from_env()
+    if not DATABASES:
+        print("No databases configured. Check your .env file.")
+        sys.exit(1)
+
     DATABASE_ID = None
     PROPERTIES = None
     db_label = None
 
     while True:
-        # Ask for DB if none selected yet or user wants to switch
-        if DATABASE_ID is None:
-            print("\nWhich database do you want to add to?")
-            print("[1] Task Manager")
-            print("[2] Time Tracker")
-            choice = input("Enter number: ").strip()
+        keys = list(DATABASES.keys())
 
-            if choice == "1":
-                DATABASE_ID = TASK_MANAGER_DB_ID
-                PROPERTIES = TASK_MANAGER_PROPS
-                db_label = "Task Manager"
-            elif choice == "2":
-                DATABASE_ID = TIME_TRACKER_DB_ID
-                PROPERTIES = TIME_TRACKER_PROPS
-                db_label = "Time Tracker"
-            else:
-                print("Invalid choice.")
-                continue
+        print("\nWhich database do you want to add to?")
+        for i, key in enumerate(keys, 1):
+            print(f"[{i}] {DATABASES[key]['label']}")
 
-        interactive_add_task(DATABASE_ID, PROPERTIES, db_label)
+        choice = input("Enter number: ").strip()
+
+        if not choice.isdigit() or not (1 <= int(choice) <= len(keys)):
+            print("Invalid choice.")
+            continue
+
+        selected = DATABASES[keys[int(choice) - 1]]
+        DATABASE_ID = selected["id"]
+        PROPERTIES = selected["properties"]
+        db_label = selected["label"]
+        ALLOW_TIME = selected["allow_time"]
+
+        interactive_add_task(DATABASE_ID, PROPERTIES, db_label, selected["allow_time"])
 
         again = input(
             "\nAdd another entry? (y = same DB / s = switch DB / n = quit): "
