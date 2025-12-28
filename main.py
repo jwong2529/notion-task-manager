@@ -10,6 +10,8 @@ import itertools
 import threading
 import time
 
+import signal
+
 def spinner(message="Working"):
     stop = False
 
@@ -22,7 +24,7 @@ def spinner(message="Working"):
             time.sleep(0.08)
         sys.stdout.write("\r" + " " * (len(message) + 4) + "\r")
 
-    thread = threading.Thread(target=run)
+    thread = threading.Thread(target=run, daemon=True)
     thread.start()
 
     def end():
@@ -61,6 +63,19 @@ def load_databases_from_env():
     
     return databases
 
+def resolve_data_source(database_id):
+    db = notion.databases.retrieve(database_id)
+    data_sources = db.get("data_sources", [])
+    if not data_sources:
+        raise ValueError(f"Database {database_id} has no data sources.")
+    data_source_id = data_sources[0]["id"]
+
+    ds = notion.request(
+        method="GET",
+        path=f"/data_sources/{data_source_id}"
+    )
+    return data_source_id, ds["properties"]
+
 def pick_timezone():
     """Pick timezone from list or fallback to default."""
     if not TIMEZONE_CHOICES:
@@ -76,7 +91,7 @@ def pick_timezone():
     print(styling.warn("Invalid choice, using default."))
     return DEFAULT_TZ
 
-def format_date_input(user_input: str, allow_time =True, tz=None):
+def format_date_input(user_input: str, allow_time=True, tz=None):
     """Convert user date input into Notion date format (with optional time)."""
     import re
     import calendar
@@ -102,18 +117,12 @@ def format_date_input(user_input: str, allow_time =True, tz=None):
             return "count", (count, delta), parts[:-1]
 
         # Case 3: until-date (d <date...> / w <date...>)
-        if len(parts) >= 2 and parts[-2].lower() in ("d", "w"):
-            unit = parts[-2].lower()
-            end_date_tokens = parts[-1:]
-
-            # allow multi-token natural dates: keep shifting left
-            i = len(parts) - 1
-            while i - 1 >= 0 and parts[i - 1].lower() not in ("d", "w"):
-                end_date_tokens.insert(0, parts[i - 1])
-                i -= 1
-
-            delta = timedelta(days=1) if unit == "d" else timedelta(weeks=1)
-            return "until", (delta, end_date_tokens), parts[:i - 1]
+        for idx in range(len(parts) - 1, -1, -1):
+            if parts[idx].lower() in ("d", "w"):
+                unit = parts[idx].lower()
+                end_date_tokens = parts[idx + 1:]
+                parts = parts[:idx]
+                return "until", (timedelta(days=1) if unit == "d" else timedelta(weeks=1), end_date_tokens), parts
 
         return None, None, parts
 
@@ -137,8 +146,6 @@ def format_date_input(user_input: str, allow_time =True, tz=None):
 
     date_part = parts[0]
     time_part = " ".join(parts[1:]) if len(parts) > 1 else None
-    if tz is None:
-        tz = ZoneInfo(pick_timezone())
 
     now = datetime.now()
     dt = None  # will be set by weekday/shortcut OR by numeric parsing below
@@ -261,7 +268,6 @@ def format_date_input(user_input: str, allow_time =True, tz=None):
 
     if dt is None:
         raise ValueError("Invalid date. Examples: '2025-08-17', '08-17', '817', '0817', '011726', or '01172026'; also 'today', 'tuesday', 'this fri', 'next wed'.")
-
 
     def build_recurrences(dt):
         if not recurrence_mode:
@@ -406,7 +412,7 @@ def choose_from_options(options, multi=False):
                 return options[idx-1]
         return None
 
-def prompt_for_property(prop_name, prop_info, allow_time):
+def prompt_for_property(prop_name, prop_info, allow_time, tz):
     """Ask user for input depending on property type and return Notion-formatted value."""
     prop_type = prop_info["type"]
 
@@ -441,7 +447,7 @@ def prompt_for_property(prop_name, prop_info, allow_time):
             if not user_input:
                 return None
             try:
-                return format_date_input(user_input, allow_time=allow_time)
+                return format_date_input(user_input, allow_time=allow_time, tz=tz)
             except ValueError as e:
                 print(styling.err(f"{e}. Try again."))
 
@@ -489,9 +495,9 @@ def summarize_task(properties):
         else:
             print(f"{styling.dim(k)}: [set]")
 
-def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
-    db = notion.databases.retrieve(DATABASE_ID)
-    properties = db["properties"]
+def interactive_add_task(data_source_id, schema, PROPERTIES, db_label, allow_time, tz):
+    
+    properties = schema
 
     print(f"\n{styling.h(f'Add a New Entry → {db_label}')}")
     notion_props = {}
@@ -500,7 +506,7 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
         if prop_name not in properties:
             print(styling.warn(f"Property '{prop_name}' not found in schema, skipping."))
             continue
-        value = prompt_for_property(prop_name, properties[prop_name], allow_time)
+        value = prompt_for_property(prop_name, properties[prop_name], allow_time, tz)
         if value:
             notion_props[prop_name] = value
 
@@ -523,9 +529,11 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
     stop_spinner = spinner(f"Creating {'entry' if total == 1 else 'entries'}...")
 
     try:
-        # create first page
         first_page = notion.pages.create(
-            parent={"database_id": DATABASE_ID},
+            parent={
+                "type": "data_source_id",
+                "data_source_id": data_source_id
+            },
             properties=notion_props
         )
         pages.append(first_page)
@@ -546,7 +554,10 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
 
             pages.append(
                 notion.pages.create(
-                    parent={"database_id": DATABASE_ID},
+                    parent={
+                        "type": "data_source_id",
+                        "data_source_id": data_source_id
+                    },
                     properties=dup_props
                 )
             )
@@ -560,19 +571,19 @@ def interactive_add_task(DATABASE_ID, PROPERTIES, db_label, allow_time):
     for p in pages:
         print(p["url"])
 
-
-if __name__ == "__main__":
-
-    # Load env variables
-    load_dotenv()
-    NOTION_TOKEN = os.getenv("NOTION_SECRET")
-
-    DEFAULT_TZ = os.getenv("DEFAULT_TIMEZONE", "UTC")
-    TIMEZONE_CHOICES = [t.strip() for t in os.getenv("TIMEZONE_CHOICES", "").split(",") if t.strip()]
-    QUICK_ACCESS_TIMES = [t.strip() for t in os.getenv("QUICK_ACCESS_TIMES", "").split(",") if t.strip()]   
-
-    # Init client
-    notion = Client(auth=NOTION_TOKEN)  
+def main():
+    # Handle Ctrl + C here too
+    while True:
+        try:
+            tz = ZoneInfo(pick_timezone())
+            break
+        except KeyboardInterrupt:
+            confirm = input("\nAre you sure you want to quit? (y/n): ").strip().lower()
+            if confirm in ("y", "yes"):
+                print(styling.ok("Goodbye!"))
+                sys.exit(0)
+            else:
+                print(styling.ok("Resuming..."))
 
     DATABASES = load_databases_from_env()
     if not DATABASES:
@@ -584,38 +595,63 @@ if __name__ == "__main__":
     db_label = None
 
     while True:
-        keys = list(DATABASES.keys())
+        try:
+            if DATABASE_ID is None:
+                keys = list(DATABASES.keys())
 
-        print(f"\n{styling.h('Choose a database')}")
-        for i, key in enumerate(keys, 1):
-            print(f"[{i}] {DATABASES[key]['label']}")
+                print(f"\n{styling.h('Choose a database')}")
+                for i, key in enumerate(keys, 1):
+                    print(f"[{i}] {DATABASES[key]['label']}")
 
-        choice = input("Enter number: ").strip()
+                choice = input("Enter number: ").strip()
 
-        if not choice.isdigit() or not (1 <= int(choice) <= len(keys)):
-            print(styling.err("Invalid choice."))
-            continue
+                if not choice.isdigit() or not (1 <= int(choice) <= len(keys)):
+                    print(styling.err("Invalid choice."))
+                    continue
 
-        selected = DATABASES[keys[int(choice) - 1]]
-        DATABASE_ID = selected["id"]
-        PROPERTIES = selected["properties"]
-        db_label = selected["label"]
-        ALLOW_TIME = selected["allow_time"]
+                selected = DATABASES[keys[int(choice) - 1]]
+                DATABASE_ID = selected["id"]
+                PROPERTIES = selected["properties"]
+                db_label = selected["label"]
+                ALLOW_TIME = selected["allow_time"]
+                data_source_id, schema = resolve_data_source(DATABASE_ID)
 
-        interactive_add_task(DATABASE_ID, PROPERTIES, db_label, selected["allow_time"])
+            interactive_add_task(data_source_id, schema, PROPERTIES, db_label, selected["allow_time"], tz)
 
-        again = input(
-            "\nAdd another entry? (y = same DB / s = switch DB / n = quit): "
-        ).strip().lower()
+            again = input(
+                "\nAdd another entry? (y = same DB / s = switch DB / n = quit): "
+            ).strip().lower()
 
-        if again in ("y", "yes"):
-            continue
-        elif again in ("s", "switch"):
-            # Reset DB so next loop will ask again
-            DATABASE_ID = None
-            PROPERTIES = None
-            db_label = None
-        else:
-            print(styling.ok("Done adding entries."))
-            break
+            if again in ("y", "yes"):
+                continue
+            elif again in ("s", "switch"):
+                # Reset DB so next loop will ask again
+                DATABASE_ID = None
+                PROPERTIES = None
+                db_label = None
+            else:
+                print(styling.ok("Done adding entries."))
+                break
+        except KeyboardInterrupt:
+            confirm = input("\nAre you sure you want to quit? (y/n): ").strip().lower()
+            if confirm in ("y", "yes"):
+                print(styling.ok("Goodbye!"))
+                sys.exit(0)
+            else:
+                print(styling.ok("Resuming..."))
+                continue
 
+if __name__ == "__main__":
+    # Load env variables
+    load_dotenv()
+    NOTION_TOKEN = os.getenv("NOTION_SECRET")
+
+    DEFAULT_TZ = os.getenv("DEFAULT_TIMEZONE", "UTC")
+    TIMEZONE_CHOICES = [t.strip() for t in os.getenv("TIMEZONE_CHOICES", "").split(",") if t.strip()]
+    QUICK_ACCESS_TIMES = [t.strip() for t in os.getenv("QUICK_ACCESS_TIMES", "").split(",") if t.strip()]   
+
+    # Init client
+    notion = Client(auth=NOTION_TOKEN)  
+
+    # Run script
+    main()
