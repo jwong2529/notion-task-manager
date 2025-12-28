@@ -1,8 +1,10 @@
 # Notion Manager
 
+**Now supported for Notion API version 2025-09-03**
+
 A Python CLI tool to quickly add entries to Notion databases, with flexible input for dates, timezones, and recurring “quick access” times.  
 
-I'm using this script to manage assignments, deadlines, and task durations in my Notion databases through the CLI instead of the Notion UI (because it's overstimulating 😕).
+I'm using this script to manage assignments, deadlines, and task durations in my Notion databases through the CLI instead of the Notion UI.
 
 ---
 
@@ -30,16 +32,15 @@ cd <repo_directory>
 ```
 
 ### 2. Install dependencies
-Create a virtual environment and activate it.
+Create a virtual environment and activate it. Then, install dependencies.
 ```bash
 python -m venv .venv 
 ```
 ```bash
 source .venv/bin/activate
 ```
-Then install these.
 ```bash
-pip install notion-client python-dotenv
+pip install -r requirements.txt
 ```
 
 ### 3. Set up Notion integration
