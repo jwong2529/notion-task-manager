@@ -70,8 +70,6 @@ Modify the `.sample_env` file with your desired information. Remember to rename 
    - `DB_<KEY>_PROPS`: List of property names in the database you want to be prompted for.
    - `DB_<KEY>_ALLOW_TIME`: Determines whether the tool will prompt for quick-access times.
 
-Make sure the variable names in your `.env` file match the `os.getenv(...)` calls in the code exactly.
-
 ### 5. Run the script
 ```bash
 python main.py
