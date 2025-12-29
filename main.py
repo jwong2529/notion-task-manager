@@ -578,7 +578,12 @@ def main():
             tz = ZoneInfo(pick_timezone())
             break
         except KeyboardInterrupt:
-            confirm = input("\nAre you sure you want to quit? (y/n): ").strip().lower()
+            try:
+                confirm = input("\nAre you sure you want to quit? (y/n): ").strip().lower()
+            except KeyboardInterrupt:
+                print(styling.ok("\nGoodbye!"))
+                sys.exit(0)
+                
             if confirm in ("y", "yes"):
                 print(styling.ok("Goodbye!"))
                 sys.exit(0)
@@ -633,13 +638,16 @@ def main():
                 print(styling.ok("Done adding entries."))
                 break
         except KeyboardInterrupt:
-            confirm = input("\nAre you sure you want to quit? (y/n): ").strip().lower()
+            try:
+                confirm = input("\nAre you sure you want to quit? (y/n): ").strip().lower()
+            except KeyboardInterrupt:
+                print(styling.ok("\nGoodbye!"))
+                sys.exit(0)
             if confirm in ("y", "yes"):
                 print(styling.ok("Goodbye!"))
                 sys.exit(0)
             else:
                 print(styling.ok("Resuming..."))
-                continue
 
 if __name__ == "__main__":
     # Load env variables
