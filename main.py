@@ -77,7 +77,6 @@ def resolve_data_source(database_id):
     return data_source_id, ds["properties"]
 
 def pick_timezone():
-    """Pick timezone from list or fallback to default."""
     if not TIMEZONE_CHOICES:
         return DEFAULT_TZ
     print(f"\n{styling.h('Choose a timezone')}")
@@ -92,7 +91,6 @@ def pick_timezone():
     return DEFAULT_TZ
 
 def format_date_input(user_input: str, allow_time=True, tz=None):
-    """Convert user date input into Notion date format (with optional time)."""
     import re
     import calendar
 
@@ -103,12 +101,10 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
         if not parts:
             return None, None, parts
 
-        # Case 1: repeat
         last = parts[-1].lower()
         if last in ("repeat", "r"):
             return "repeat", 1, parts[:-1]
 
-        # Case 2: count-based (3d / 2w)
         m = re.match(r"^(\d+)([dw])$", last)
         if m:
             count = int(m.group(1))
@@ -116,7 +112,20 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
             delta = timedelta(days=1) if unit == "d" else timedelta(weeks=1)
             return "count", (count, delta), parts[:-1]
 
-        # Case 3: until-date (d <date...> / w <date...>)
+        dow_pattern = r"^([mtwrfsu]+)(\d+)w$"
+        m = re.match(dow_pattern, last)
+        if m:
+            dow_str = m.group(1)
+            weeks = int(m.group(2))
+            return "dow", (dow_str, weeks), parts[:-1]
+
+        for idx in range(len(parts) - 1, -1, -1):
+            if re.match(r"^[mtwrfsu]+$", parts[idx].lower()):
+                dow_str = parts[idx].lower()
+                end_date_tokens = parts[idx + 1:]
+                parts = parts[:idx]
+                return "dow_until", (dow_str, end_date_tokens), parts
+
         for idx in range(len(parts) - 1, -1, -1):
             if parts[idx].lower() in ("d", "w"):
                 unit = parts[idx].lower()
@@ -130,27 +139,26 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
         if not tokens:
             return None
 
-        # Reuse the same function recursively, but disable recurrence
         result = format_date_input(" ".join(tokens), allow_time=False, tz=tz)
         start = result["date"]["start"]
 
-        # Convert to datetime for comparison
         if "T" in start:
             return datetime.fromisoformat(start)
         else:
             return datetime.fromisoformat(start + "T00:00:00")
 
-    # Original split (kept)
     parts = user_input.strip().split()
     recurrence_mode, recurrence_info, parts = parse_recurrence(parts)
 
+    if not parts:
+        parts = ["today"]
+    
     date_part = parts[0]
     time_part = " ".join(parts[1:]) if len(parts) > 1 else None
 
     now = datetime.now()
-    dt = None  # will be set by weekday/shortcut OR by numeric parsing below
+    dt = None
 
-    # ── Weekday & shortcut parsing (non-destructive to original flows) ──
     tokens = [p.lower() for p in parts]
     weekdays_map = {day.lower(): i for i, day in enumerate(calendar.day_name)}
     aliases = {
@@ -166,10 +174,9 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
     def norm_weekday(tok: str):
         return aliases.get(tok.lower(), tok.lower())
 
-    consumed = 0  # how many tokens belong to the date phrase we parse here
+    consumed = 0
 
     if tokens:
-        # Shortcuts: today / tomorrow
         if tokens[0] in ("today",):
             dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
             consumed = 1
@@ -180,40 +187,34 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
             dt = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
             consumed = 1
 
-        # "this/next <weekday>"
         elif tokens[0] in ("this", "next") and len(tokens) >= 2:
             wd_full = norm_weekday(tokens[1])
             if wd_full in weekdays_map:
                 target = weekdays_map[wd_full]
-                today = now.weekday()  # Monday=0, Sunday=6
+                today = now.weekday()
 
                 if tokens[0] == "this":
-                    # Start of this week (Monday)
                     start_of_week = now - timedelta(days=today)
                     candidate = start_of_week + timedelta(days=target)
-                    # If that day already passed, roll forward to next week
                     if candidate.date() < now.date():
                         candidate += timedelta(weeks=1)
                     dt = candidate
 
-                else:  # "next"
-                    # Start of *next* calendar week (Monday)
+                else:
                     start_of_next_week = now - timedelta(days=today) + timedelta(weeks=1)
                     dt = start_of_next_week + timedelta(days=target)
 
                 dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
                 consumed = 2
 
-        # Just a weekday ("tuesday"/"tue")
         elif norm_weekday(tokens[0]) in weekdays_map:
             wd_full = norm_weekday(tokens[0])
             target = weekdays_map[wd_full]
             today = now.weekday()
-            days_ahead = (target - today) % 7  # next occurrence, including today
+            days_ahead = (target - today) % 7
             dt = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
             consumed = 1
 
-    # If we matched a weekday/shortcut, recompute time_part from remaining tokens
     if dt is not None:
         remainder = " ".join(parts[consumed:]).strip()
         time_part = remainder if remainder else None
@@ -221,24 +222,24 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
     if dt is None and date_part.isdigit():
         year_explicit = False
 
-        if len(date_part) == 3: #817
+        if len(date_part) == 3:
             month = int(date_part[0])
             day = int(date_part[1:])
             year = now.year
         
-        elif len(date_part) == 4: # 0817
+        elif len(date_part) == 4:
             month = int(date_part[:2])
             day = int(date_part[2:])
             year = now.year
 
-        elif len(date_part) == 6: # 011726
+        elif len(date_part) == 6:
             month = int(date_part[:2])
             day = int(date_part[2:4])
             yy = int(date_part[4:])
             year = 2000 + yy if yy <= 69 else 1900 + yy
             year_explicit = True
         
-        elif len(date_part) == 8: #01172026
+        elif len(date_part) == 8:
             month = int(date_part[:2])
             day = int(date_part[2:4])
             year = int(date_part[4:])
@@ -250,7 +251,6 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
         if month and day and year:
             dt = datetime(year, month, day)
 
-            # Roll forward if implied-year date is in the past
             if not year_explicit and dt.date() < now.date():
                 dt = dt.replace(year = now.year + 1)
 
@@ -280,6 +280,83 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
             count, delta = recurrence_info
             return [dt + i * delta for i in range(count)]
 
+        if recurrence_mode == "dow":
+            dow_str, weeks = recurrence_info
+            dow_map = {"m": 0, "t": 1, "w": 2, "r": 3, "f": 4, "s": 5, "u": 6}
+            
+            target_days = []
+            for c in dow_str:
+                if c in dow_map:
+                    target_days.append(dow_map[c])
+            
+            if not target_days:
+                return [dt]
+            
+            target_days = sorted(set(target_days))
+            
+            dates = []
+            current_date = dt.date()
+            
+            for week_offset in range(weeks):
+                for target_day in target_days:
+                    days_ahead = (target_day - dt.weekday()) % 7
+                    if week_offset == 0 and days_ahead == 0:
+                        days_ahead = 0
+                    candidate_date = current_date + timedelta(days=days_ahead + (week_offset * 7))
+                    
+                    if candidate_date >= current_date:
+                        candidate = datetime.combine(candidate_date, datetime.min.time())
+                        candidate = candidate.replace(hour=dt.hour, minute=dt.minute, second=dt.second, microsecond=dt.microsecond, tzinfo=dt.tzinfo)
+                        dates.append(candidate)
+            
+            return dates
+
+        if recurrence_mode == "dow_until":
+            dow_str, end_tokens = recurrence_info
+            dow_map = {"m": 0, "t": 1, "w": 2, "r": 3, "f": 4, "s": 5, "u": 6}
+            
+            target_days = []
+            for c in dow_str:
+                if c in dow_map:
+                    target_days.append(dow_map[c])
+            
+            if not target_days:
+                return [dt]
+            
+            target_days = sorted(set(target_days))
+            
+            end_dt = parse_end_date(end_tokens)
+            if not end_dt:
+                return [dt]
+            
+            MAX_RECURRENCES = 200
+            dates = []
+            current_date = dt.date()
+            week_offset = 0
+            
+            while True:
+                for target_day in target_days:
+                    days_ahead = (target_day - dt.weekday()) % 7
+                    if week_offset == 0 and days_ahead == 0:
+                        days_ahead = 0
+                    candidate_date = current_date + timedelta(days=days_ahead + (week_offset * 7))
+                    
+                    if candidate_date > end_dt.date():
+                        return dates
+                    
+                    if candidate_date >= current_date:
+                        if len(dates) >= MAX_RECURRENCES:
+                            raise ValueError(f"Recurrence exceeds {MAX_RECURRENCES} entries.")
+                        candidate = datetime.combine(candidate_date, datetime.min.time())
+                        candidate = candidate.replace(hour=dt.hour, minute=dt.minute, second=dt.second, microsecond=dt.microsecond, tzinfo=dt.tzinfo)
+                        dates.append(candidate)
+                
+                week_offset += 1
+                if week_offset > 100:
+                    return dates
+            
+            return dates
+
         if recurrence_mode == "until":
             delta, end_tokens = recurrence_info
             end_dt = parse_end_date(end_tokens)
@@ -303,9 +380,7 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
 
     had_explicit_time = False
 
-    # --- Parse time ---
     if time_part:
-        # 1) Try typical formats first: 24h with colon, then 12h with colon+AM/PM
         for time_fmt in ("%H:%M", "%I:%M %p"):
             try:
                 t = datetime.strptime(time_part, time_fmt)
@@ -320,13 +395,11 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
             except ValueError:
                 pass
 
-        # 2) Try digit-only with optional AM/PM, e.g. "232", "1259", "232 PM"
         m = re.match(r"^\s*(\d{1,4})\s*(am|pm|AM|PM)?\s*$", time_part)
         if m:
             digits = m.group(1)
             ampm = (m.group(2) or "").lower()
 
-            # Convert digits -> hour/minute
             if len(digits) in (3, 4):
                 hour = int(digits[:-2])
                 minute = int(digits[-2:])
@@ -336,19 +409,16 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
             else:
                 raise ValueError("Time too long. Use up to 4 digits, e.g. '232' or '1259'.")
 
-            # Validate ranges (pre-AM/PM conversion)
             if not (0 <= minute <= 59):
                 raise ValueError("Minute must be 00–59.")
             if ampm:
-                # 12-hour normalization
                 if not (1 <= hour <= 12):
                     raise ValueError("Hour must be 1–12 when using AM/PM.")
                 if ampm == "am":
                     hour = 0 if hour == 12 else hour
-                else:  # pm
+                else:
                     hour = 12 if hour == 12 else hour + 12
             else:
-                # No AM/PM -> treat as 24h
                 if not (0 <= hour <= 23):
                     raise ValueError("Hour must be 00–23 for 24-hour times.")
 
@@ -360,12 +430,10 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
                 "_recurrences": dates[1:]
             }
 
-        # If nothing matched:
         raise ValueError(
             "Invalid time. Examples: '14:30', '2:30 PM', '232', '1259', or '232 PM'."
         )
 
-    # --- No time given -> optionally offer quick access times, else date-only ---
     if allow_time and QUICK_ACCESS_TIMES:
         print("\nChoose a hardcoded time or leave blank for no time:")
         for i, t in enumerate(QUICK_ACCESS_TIMES, 1):
@@ -377,18 +445,20 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
                 try:
                     t = datetime.strptime(t_str, time_fmt)
                     dt = dt.replace(hour=t.hour, minute=t.minute, tzinfo=tz)
-                    return {"date": {"start": dt.isoformat()}}
+                    dates = build_recurrences(dt)
+                    return {
+                        "date": {"start": dates[0].isoformat()},
+                        "_recurrences": dates[1:]
+                    }
                 except ValueError:
                     continue
 
-        # Blank => date-only
         dates = build_recurrences(dt)
         return {
             "date": {"start": dates[0].date().isoformat()},
             "_recurrences": [d.date().isoformat() for d in dates[1:]]
         }
     
-    # Date only (no quick access times configured)
     dates = build_recurrences(dt)
     return {
         "date": {"start": dates[0].date().isoformat()},
@@ -396,7 +466,6 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
     }
 
 def choose_from_options(options, multi=False):
-    """Display numbered options and let user choose by number(s)."""
     for i, opt in enumerate(options, 1):
         print(f"[{i}] {opt}")
     choice = input("Choose: ").strip()
@@ -413,18 +482,15 @@ def choose_from_options(options, multi=False):
         return None
 
 def prompt_for_property(prop_name, prop_info, allow_time, tz):
-    """Ask user for input depending on property type and return Notion-formatted value."""
     prop_type = prop_info["type"]
 
-    # Title: inline input right after the colon
     if prop_type == "title":
-        print()  # uniform one blank line before every property
+        print()
         user_input = input(f"{prop_name} (title): ").strip()
         if not user_input:
             return None
         return {"title": [{"text": {"content": user_input}}]}
 
-    # Non-title: keep the header line, then inputs on following lines
     print(f"\n{styling.h(f'{prop_name}')} {styling.dim(f'({prop_type})')}")
 
     if prop_type in ("select", "multi_select", "status"):
@@ -442,6 +508,7 @@ def prompt_for_property(prop_name, prop_info, allow_time, tz):
     elif prop_type == "date":
         print(styling.dim("Enter a date (examples: '2025-08-17 11:59 PM', '08-17', '0817 1159 PM')"))
         print(styling.dim("Shortcuts: 'today', 'tomorrow', 'this tue', 'next fri'"))
+        print(styling.dim("Recurrence: 'mwf3w' (Mon/Wed/Fri for 3 weeks), 'tr2w' (Tue/Thu for 2 weeks)"))
         while True:
             user_input = input("Date: ").strip()
             if not user_input:
@@ -510,7 +577,6 @@ def interactive_add_task(data_source_id, schema, PROPERTIES, db_label, allow_tim
         if value:
             notion_props[prop_name] = value
 
-    # extract recurrences (if any)
     recurrences = []
     for v in notion_props.values():
         if isinstance(v, dict) and "_recurrences" in v:
@@ -538,7 +604,6 @@ def interactive_add_task(data_source_id, schema, PROPERTIES, db_label, allow_tim
         )
         pages.append(first_page)
 
-        # duplicate for recurrences
         for dt in recurrences:
             dup_props = {}
 
@@ -564,7 +629,6 @@ def interactive_add_task(data_source_id, schema, PROPERTIES, db_label, allow_tim
     finally:
         stop_spinner()
 
-    # summary 
     summarize_task(notion_props)
 
     print(f"\n{styling.ok(f'✓ Added {len(pages)} task(s) to {db_label}')}")
@@ -572,7 +636,6 @@ def interactive_add_task(data_source_id, schema, PROPERTIES, db_label, allow_tim
         print(p["url"])
 
 def main():
-    # Handle Ctrl + C here too
     while True:
         try:
             tz = ZoneInfo(pick_timezone())
@@ -630,7 +693,6 @@ def main():
             if again in ("y", "yes"):
                 continue
             elif again in ("s", "switch"):
-                # Reset DB so next loop will ask again
                 DATABASE_ID = None
                 PROPERTIES = None
                 db_label = None
@@ -650,7 +712,6 @@ def main():
                 print(styling.ok("Resuming..."))
 
 if __name__ == "__main__":
-    # Load env variables
     load_dotenv()
     NOTION_TOKEN = os.getenv("NOTION_SECRET")
 
@@ -658,8 +719,6 @@ if __name__ == "__main__":
     TIMEZONE_CHOICES = [t.strip() for t in os.getenv("TIMEZONE_CHOICES", "").split(",") if t.strip()]
     QUICK_ACCESS_TIMES = [t.strip() for t in os.getenv("QUICK_ACCESS_TIMES", "").split(",") if t.strip()]   
 
-    # Init client
     notion = Client(auth=NOTION_TOKEN)  
 
-    # Run script
     main()
