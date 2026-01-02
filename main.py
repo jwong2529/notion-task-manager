@@ -12,27 +12,33 @@ import time
 
 import signal
 
+os.environ['PYTHONUNBUFFERED'] = '1'
+
+# def spinner(message="Working"):
+#     stop = False
+
+#     def run():
+#         for c in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
+#             if stop:
+#                 break
+#             sys.stdout.write(f"\r{styling.dim(message)} {c}")
+#             sys.stdout.flush()
+#             time.sleep(0.08)
+#         sys.stdout.write("\r" + " " * (len(message) + 4) + "\r")
+
+#     thread = threading.Thread(target=run, daemon=True)
+#     thread.start()
+
+#     def end():
+#         nonlocal stop
+#         stop = True
+#         thread.join()
+
+#     return end
+
 def spinner(message="Working"):
-    stop = False
-
-    def run():
-        for c in itertools.cycle("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"):
-            if stop:
-                break
-            sys.stdout.write(f"\r{styling.dim(message)} {c}")
-            sys.stdout.flush()
-            time.sleep(0.08)
-        sys.stdout.write("\r" + " " * (len(message) + 4) + "\r")
-
-    thread = threading.Thread(target=run, daemon=True)
-    thread.start()
-
-    def end():
-        nonlocal stop
-        stop = True
-        thread.join()
-
-    return end
+    print(f"{styling.dim(message)}...")
+    return lambda: None
 
 def load_databases_from_env():
     databases = {}
