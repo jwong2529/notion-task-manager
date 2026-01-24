@@ -126,18 +126,18 @@ def format_date_input(user_input: str, allow_time=True, tz=None):
             return "dow", (dow_str, weeks), parts[:-1]
 
         for idx in range(len(parts) - 1, -1, -1):
-            if re.match(r"^[mtwrfsu]+$", parts[idx].lower()):
-                dow_str = parts[idx].lower()
-                end_date_tokens = parts[idx + 1:]
-                parts = parts[:idx]
-                return "dow_until", (dow_str, end_date_tokens), parts
-
-        for idx in range(len(parts) - 1, -1, -1):
             if parts[idx].lower() in ("d", "w"):
                 unit = parts[idx].lower()
                 end_date_tokens = parts[idx + 1:]
                 parts = parts[:idx]
                 return "until", (timedelta(days=1) if unit == "d" else timedelta(weeks=1), end_date_tokens), parts
+        
+        for idx in range(len(parts) - 1, -1, -1):
+            if re.match(r"^[mtwrfsu]+$", parts[idx].lower()):
+                dow_str = parts[idx].lower()
+                end_date_tokens = parts[idx + 1:]
+                parts = parts[:idx]
+                return "dow_until", (dow_str, end_date_tokens), parts
 
         return None, None, parts
 
